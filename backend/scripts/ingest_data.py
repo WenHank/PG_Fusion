@@ -4,7 +4,13 @@ from psycopg2 import extras
 import os
 
 # Database Connection
-DB_PARAMS = "dbname=bikestores user=postgres password=password host=localhost port=5432"
+DB_PARAMS = {
+    "dbname": os.getenv("DB_NAME", "bikestores"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "password"),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
+}
 DATA_DIR = "../data"  # Adjusted to match your VS Code explorer
 
 
@@ -19,7 +25,7 @@ def show_data_description():
 
 
 def load_csv_to_postgres():
-    conn = psycopg2.connect(DB_PARAMS)
+    conn = psycopg2.connect(**DB_PARAMS)
     cur = conn.cursor()
 
     csv_files = [

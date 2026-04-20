@@ -58,6 +58,28 @@ def get_db_stats():
         return {"status": "error", "message": str(e)}
 
 
+@app.post("/v1/search")
+def hybrid_search(query: str, max_price: float = 100000):
+    # 1. 將使用者的問題轉成向量
+    query_vector = model.encode(query).tolist()
+
+    with Session(engine) as session:
+        # 2. 執行 Hybrid Search SQL
+        # <=> 代表餘弦距離 (Cosine Distance)
+        sql = """
+            SELECT product_name, list_price, description 
+            FROM products 
+            WHERE list_price <= :price 
+            ORDER BY embedding <=> :vector::vector
+            LIMIT 5
+        """
+        results = session.execute(
+            text(sql), {"price": max_price, "vector": str(query_vector)}
+        ).fetchall()
+
+        return results
+
+
 if __name__ == "__main__":
     import uvicorn
 
