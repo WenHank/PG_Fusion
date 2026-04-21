@@ -1,18 +1,41 @@
+import os
 from fastapi import FastAPI, HTTPException
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sentence_transformers import SentenceTransformer
+
+from api_schema import SearchRequest
 
 app = FastAPI(title="PG-Fusion API")
 
-# Database configuration (Matches your Docker setup)
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# 1. Configuration from Environment Variables
 DB_PARAMS = {
-    "dbname": "bikestores",
-    "user": "postgres",
-    "password": "password",
-    "host": "localhost",  # Use 'db' if connecting from another container, 'localhost' if running locally
-    "port": "5432",
+    "dbname": os.getenv("DB_NAME", "bikestores"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "password"),
+    "host": os.getenv("DB_HOST", "127.0.0.1"),  # Changed to 127.0.0.1 for stability
+    "port": os.getenv("DB_PORT", "5432"),
 }
+
+
+def get_engine():
+    """Constructs the URL and creates the SQLAlchemy engine."""
+    url = f"postgresql://{DB_PARAMS['user']}:{DB_PARAMS['password']}@{DB_PARAMS['host']}:{DB_PARAMS['port']}/{DB_PARAMS['dbname']}"
+    return create_engine(url)
+
+
+# 2. Initialize the engine once globally
+engine = get_engine()
+
+# 3. Create a SessionLocal class for dependency injection
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 @app.get("/")
@@ -58,26 +81,67 @@ def get_db_stats():
         return {"status": "error", "message": str(e)}
 
 
-@app.post("/v1/search")
-def hybrid_search(query: str, max_price: float = 100000):
-    # 1. 將使用者的問題轉成向量
+@app.post("/v1/compare-search")
+def compare_search(request: SearchRequest):
+    query = request.query
+    max_price = request.max_price
+    print(f"Received search query: '{query}' with max price: {max_price}")
+
+    # FIX: Removed the brackets
     query_vector = model.encode(query).tolist()
 
     with Session(engine) as session:
-        # 2. 執行 Hybrid Search SQL
-        # <=> 代表餘弦距離 (Cosine Distance)
-        sql = """
-            SELECT product_name, list_price, description 
+        # FTS Search
+        fts_sql = """
+            SELECT product_name, list_price, 'Full-Text Search' as method
             FROM products 
             WHERE list_price <= :price 
-            ORDER BY embedding <=> :vector::vector
+            AND (to_tsvector('english', product_name) @@ plainto_tsquery('english', :query))
             LIMIT 5
         """
-        results = session.execute(
-            text(sql), {"price": max_price, "vector": str(query_vector)}
+        fts_results = session.execute(
+            text(fts_sql), {"price": max_price, "query": query}
         ).fetchall()
 
-        return results
+        # Vector Search
+        # FIX: Removed the brackets
+        vector_sql = """
+            SELECT product_name, list_price, 'Vector Search' as method
+            FROM products 
+            WHERE list_price <= :price 
+            ORDER BY embedding <=> CAST(:vector AS vector)
+            LIMIT 5
+        """
+        vector_results = session.execute(
+            text(vector_sql),
+            {
+                "price": max_price,
+                "vector": str(
+                    query_vector
+                ),  # Ensure this matches the variable name in SQL
+            },
+        ).fetchall()
+
+        # 2. Execute FTS
+        fts_raw = session.execute(
+            text(fts_sql), {"price": max_price, "query": query}
+        ).fetchall()
+        # Convert to list of dicts
+        fts_results = [dict(row._mapping) for row in fts_raw]
+
+        # 3. Execute Vector Search
+        vector_raw = session.execute(
+            text(vector_sql), {"price": max_price, "vector": str(query_vector)}
+        ).fetchall()
+        # Convert to list of dicts
+        vector_results = [dict(row._mapping) for row in vector_raw]
+
+        # 4. Return
+        return {
+            "query": query,
+            "fts_results": fts_results,
+            "vector_results": vector_results,
+        }
 
 
 if __name__ == "__main__":

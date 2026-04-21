@@ -95,6 +95,26 @@ def drop_all_tables():
             conn.close()
 
 
+from sqlalchemy import create_engine
+
+# ... other imports
+
+# 1. Define your Database Connection URL
+# Format: postgresql://user:password@host:port/database
+DATABASE_URL = f"postgresql://{DB_PARAMS['user']}:{DB_PARAMS['password']}@{DB_PARAMS['host']}:{DB_PARAMS['port']}/{DB_PARAMS['dbname']}"
+
+# 2. Create the engine
+engine = create_engine(DATABASE_URL)
+
+# 3. (Optional but recommended) Test the connection
+try:
+    with engine.connect() as conn:
+        print("Successfully connected to the database!")
+except Exception as e:
+    print(f"Database connection failed: {e}")
+
+# ... then your FastAPI code begins
+
 if __name__ == "__main__":
     # In professional projects, we usually check an arg to decide whether to drop
     # For now, just run create_schema

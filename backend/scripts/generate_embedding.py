@@ -1,13 +1,22 @@
+import os
 import psycopg2
 from sentence_transformers import SentenceTransformer
 import pandas as pd
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
+DB_PARAMS = {
+    "dbname": os.getenv("DB_NAME", "bikestores"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "password"),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": os.getenv("DB_PORT", "5432"),
+}
+
 
 def update_product_embeddings():
     conn = psycopg2.connect(
-        "dbname=bikestores user=postgres password=password host=localhost"
+        f"dbname={DB_PARAMS['dbname']} user={DB_PARAMS['user']} password={DB_PARAMS['password']} host={DB_PARAMS['host']} port={DB_PARAMS['port']}"
     )
     cur = conn.cursor()
 
